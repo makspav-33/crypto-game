@@ -2,17 +2,20 @@ import React, { useState, useEffect } from 'react';
 import api, { authStorage } from '../utils/api';
 import { decodeJwt } from '../utils/jwtHelper';
 import { useToast } from '../components/Toast';
+import CipherSandboxTab from '../components/CipherSandboxTab';
 
 /**
  * Dashboard & Session Status Page
  * Displays authenticated agent state, JWT token inspector,
- * session verification with GET /api/auth/me, and preview of upcoming contracts.
+ * session verification with GET /api/auth/me, preview of contracts,
+ * and the interactive Cipher Lab / Sandbox.
  */
 export default function DashboardPreview({ user, onLogout, onOpenLab1 }) {
   const [profile, setProfile] = useState(user);
   const [loadingVerify, setLoadingVerify] = useState(false);
   const [lastVerifiedAt, setLastVerifiedAt] = useState(null);
   const [tokenClaims, setTokenClaims] = useState(null);
+  const [dashboardTab, setDashboardTab] = useState('marketplace'); // 'marketplace' | 'sandbox'
   const toast = useToast();
 
   const token = authStorage.getToken();
@@ -122,14 +125,57 @@ export default function DashboardPreview({ user, onLogout, onOpenLab1 }) {
         </div>
       </div>
 
-      {/* Grid: Token Inspector & Auth Status */}
+      {/* Dashboard Sub-navigation Tabs */}
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))',
-          gap: '20px',
+          display: 'flex',
+          gap: '12px',
+          borderBottom: '1px solid var(--border-color)',
+          paddingBottom: '8px',
         }}
       >
+        <button
+          type="button"
+          className={`btn-cyber ${dashboardTab === 'marketplace' ? '' : 'btn-cyber-cyan'}`}
+          onClick={() => setDashboardTab('marketplace')}
+          style={{
+            background: dashboardTab === 'marketplace' ? 'var(--accent-green)' : 'transparent',
+            color: dashboardTab === 'marketplace' ? 'var(--bg-main)' : 'var(--accent-cyan)',
+            borderColor: dashboardTab === 'marketplace' ? 'var(--accent-green)' : 'var(--border-color)',
+            padding: '8px 18px',
+            fontSize: '0.85rem',
+          }}
+        >
+          [1. CONTRACTS &amp; VAULT]
+        </button>
+        <button
+          type="button"
+          className={`btn-cyber ${dashboardTab === 'sandbox' ? '' : 'btn-cyber-cyan'}`}
+          onClick={() => setDashboardTab('sandbox')}
+          style={{
+            background: dashboardTab === 'sandbox' ? 'var(--accent-green)' : 'transparent',
+            color: dashboardTab === 'sandbox' ? 'var(--bg-main)' : 'var(--accent-cyan)',
+            borderColor: dashboardTab === 'sandbox' ? 'var(--accent-green)' : 'var(--border-color)',
+            padding: '8px 18px',
+            fontSize: '0.85rem',
+          }}
+        >
+          [2. CIPHER LAB // SANDBOX]
+        </button>
+      </div>
+
+      {dashboardTab === 'sandbox' ? (
+        <CipherSandboxTab />
+      ) : (
+        <>
+          {/* Grid: Token Inspector & Auth Status */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))',
+              gap: '20px',
+            }}
+          >
         {/* Token Info Card */}
         <div
           style={{
@@ -403,8 +449,10 @@ export default function DashboardPreview({ user, onLogout, onOpenLab1 }) {
               Interception and public key injection between Alice and Bob nodes.
             </div>
           </div>
+          </div>
         </div>
-      </div>
-    </main>
-  );
+      </>
+    )}
+  </main>
+);
 }

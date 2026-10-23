@@ -1,8 +1,9 @@
 import os
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from auth import auth_bp, init_db
 from lab1_routes import lab1_bp, init_lab1_db
+from crypto_logic.transposition import transpose_cipher
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
@@ -14,6 +15,16 @@ init_lab1_db()
 # Register Blueprints
 app.register_blueprint(auth_bp)
 app.register_blueprint(lab1_bp)
+
+
+@app.route('/api/sandbox/transpose', methods=['POST'])
+def sandbox_transpose():
+    data = request.get_json(silent=True) or {}
+    text = data.get('text', '')
+    mode = data.get('mode', 'vertical')
+    cols = int(data.get('cols', 5))
+    result = transpose_cipher(text, mode, cols)
+    return jsonify(result)
 
 
 @app.route('/api/health', methods=['GET'])
