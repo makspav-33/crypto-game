@@ -1,0 +1,395 @@
+/* ==============================================================================
+   HACKNET OS v1.0 - CORE DESIGN SYSTEM & STYLESHEET
+   Based on hacknet_design_specification.md
+   ============================================================================== */
+
+:root {
+  /* Backgrounds */
+  --bg-main: #0a0d14;          /* Deep Cyber Black */
+  --bg-surface: #121824;       /* Terminal Panel Dark */
+  --bg-surface-hover: #1b2334; /* Panel Hover State */
+  --bg-overlay: rgba(10, 13, 20, 0.85);
+
+  /* Primary Cyber Accents */
+  --accent-green: #00ff66;     /* Terminal Success / Active Matrix */
+  --accent-green-glow: rgba(0, 255, 102, 0.4);
+  --accent-cyan: #00f0ff;      /* System Info / Links */
+  --accent-cyan-glow: rgba(0, 240, 255, 0.4);
+  --accent-purple: #9d4edd;    /* DarkWeb Marketplace / Premium */
+  --accent-purple-glow: rgba(157, 78, 221, 0.4);
+  --accent-amber: #ffaa00;     /* Warning / Suspicious activity */
+  --accent-amber-glow: rgba(255, 170, 0, 0.4);
+  --accent-red: #ff2a6d;       /* Alert / Access Denied / Error */
+  --accent-red-glow: rgba(255, 42, 109, 0.4);
+
+  /* Text Colors */
+  --text-main: #e0e6ed;        /* High contrast text */
+  --text-muted: #6272a4;       /* Dimmed details / Comments */
+  --text-code: #00ff66;        /* Monospace code color */
+
+  /* Borders & Grid */
+  --border-color: #232d42;
+  --border-active: #00ff66;
+  --grid-line: rgba(0, 240, 255, 0.05);
+
+  /* Fonts */
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-header: 'Share Tech Mono', 'JetBrains Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  font-family: var(--font-mono);
+  letter-spacing: -0.02em;
+  overflow-x: hidden;
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg-main);
+  background-image: 
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 32px 32px;
+  position: relative;
+}
+
+/* Headings */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-header);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  text-shadow: 0 0 8px var(--accent-green-glow);
+}
+
+/* Links */
+a {
+  color: var(--accent-cyan);
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+a:hover {
+  text-shadow: 0 0 8px var(--accent-cyan);
+}
+
+/* ==============================================================================
+   4. SPECIAL VISUAL EFFECTS (FX)
+   ============================================================================== */
+
+/* 4.1 CRT Scanlines Overlay */
+.crt-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: linear-gradient(
+    rgba(18, 16, 16, 0) 50%, 
+    rgba(0, 0, 0, 0.25) 50%
+  );
+  background-size: 100% 4px;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+/* 4.2 Neon Glow Effects */
+.glow-green {
+  box-shadow: 0 0 15px var(--accent-green-glow);
+  border: 1px solid var(--accent-green);
+}
+
+.glow-cyan {
+  box-shadow: 0 0 15px var(--accent-cyan-glow);
+  border: 1px solid var(--accent-cyan);
+}
+
+.glow-red {
+  box-shadow: 0 0 15px var(--accent-red-glow);
+  border: 1px solid var(--accent-red);
+}
+
+.glow-text-cyan {
+  text-shadow: 0 0 10px var(--accent-cyan);
+}
+
+.glow-text-green {
+  text-shadow: 0 0 10px var(--accent-green);
+}
+
+.glow-text-red {
+  text-shadow: 0 0 10px var(--accent-red);
+}
+
+/* 4.3 Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-main);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent-green);
+  box-shadow: 0 0 6px var(--accent-green-glow);
+}
+
+/* ==============================================================================
+   7. BUTTONS, INPUTS & INTERACTION
+   ============================================================================== */
+
+/* 7.1 Buttons */
+.btn-cyber {
+  background: transparent;
+  border: 1px solid var(--accent-green);
+  color: var(--accent-green);
+  padding: 10px 20px;
+  font-family: var(--font-mono);
+  font-weight: bold;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.2s ease-in-out;
+  position: relative;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  letter-spacing: 0.05em;
+  font-size: 0.88rem;
+  outline: none;
+}
+
+.btn-cyber:hover:not(:disabled) {
+  background: var(--accent-green);
+  color: var(--bg-main);
+  box-shadow: 0 0 15px var(--accent-green-glow);
+}
+
+.btn-cyber:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn-cyber:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  border-color: var(--border-color);
+  color: var(--text-muted);
+  box-shadow: none;
+}
+
+.btn-cyber-cyan {
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
+.btn-cyber-cyan:hover:not(:disabled) {
+  background: var(--accent-cyan);
+  color: var(--bg-main);
+  box-shadow: 0 0 15px var(--accent-cyan-glow);
+}
+
+.btn-cyber-danger {
+  border-color: var(--accent-red);
+  color: var(--accent-red);
+}
+
+.btn-cyber-danger:hover:not(:disabled) {
+  background: var(--accent-red);
+  color: #fff;
+  box-shadow: 0 0 15px rgba(255, 42, 109, 0.5);
+}
+
+/* Cyber Terminal Inputs */
+.cyber-input-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+
+.cyber-label {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cyber-input-container {
+  display: flex;
+  align-items: center;
+  background: rgba(10, 13, 20, 0.85);
+  border: 1px solid var(--border-color);
+  padding: 2px 10px;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.cyber-input-container:focus-within {
+  border-color: var(--accent-green);
+  box-shadow: 0 0 12px var(--accent-green-glow);
+}
+
+.cyber-input-prefix {
+  color: var(--accent-green);
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  margin-right: 8px;
+  user-select: none;
+}
+
+.cyber-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-main);
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  padding: 10px 0;
+  caret-color: var(--accent-green); /* Green caret requirement */
+}
+
+.cyber-input::placeholder {
+  color: rgba(98, 114, 164, 0.6);
+  font-style: italic;
+  font-size: 0.85rem;
+}
+
+/* 7.2 Toast Alerts */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-6px); }
+  40%, 80% { transform: translateX(6px); }
+}
+
+.toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 440px;
+  width: calc(100% - 48px);
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 18px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.7);
+  transition: all 0.3s ease;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  position: relative;
+}
+
+.toast-error {
+  animation: shake 0.4s ease-in-out;
+  border-left: 4px solid var(--accent-red);
+  background: var(--bg-surface);
+  box-shadow: 0 0 18px rgba(255, 42, 109, 0.25);
+  color: var(--text-main);
+}
+
+.toast-error .toast-title {
+  color: var(--accent-red);
+  text-shadow: 0 0 6px var(--accent-red-glow);
+}
+
+.toast-success {
+  border-left: 4px solid var(--accent-green);
+  background: var(--bg-surface);
+  box-shadow: 0 0 18px var(--accent-green-glow);
+  color: var(--text-main);
+}
+
+.toast-success .toast-title {
+  color: var(--accent-green);
+  text-shadow: 0 0 6px var(--accent-green-glow);
+}
+
+.toast-info {
+  border-left: 4px solid var(--accent-cyan);
+  background: var(--bg-surface);
+  box-shadow: 0 0 18px var(--accent-cyan-glow);
+  color: var(--text-main);
+}
+
+.toast-info .toast-title {
+  color: var(--accent-cyan);
+  text-shadow: 0 0 6px var(--accent-cyan-glow);
+}
+
+.toast-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.2s;
+  margin-left: auto;
+}
+
+.toast-close:hover {
+  color: var(--text-main);
+}
+
+/* Pulsing and Blinking Animations */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.cursor-blink {
+  display: inline-block;
+  width: 9px;
+  height: 1.1em;
+  background-color: var(--accent-green);
+  vertical-align: middle;
+  margin-left: 3px;
+  animation: blink 1s step-end infinite;
+  box-shadow: 0 0 6px var(--accent-green-glow);
+}
+
+@keyframes pulse-green {
+  0% { box-shadow: 0 0 4px var(--accent-green); }
+  50% { box-shadow: 0 0 14px var(--accent-green); }
+  100% { box-shadow: 0 0 4px var(--accent-green); }
+}
+
+.pulse-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--accent-green);
+  animation: pulse-green 2s infinite ease-in-out;
+  display: inline-block;
+}
