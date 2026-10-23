@@ -4,12 +4,14 @@ import Header from './components/Header';
 import { ToastProvider, useToast } from './components/Toast';
 import AuthScreen from './pages/AuthScreen';
 import DashboardPreview from './pages/DashboardPreview';
+import Lab1Page from './pages/Lab1Page';
 import api, { authStorage } from './utils/api';
 import './App.css';
 
 function AppContent() {
   const [user, setUser] = useState(authStorage.getUser());
   const [isInitializing, setIsInitializing] = useState(true);
+  const [currentPage, setCurrentPage] = useState('dashboard'); // 'dashboard' | 'lab1'
   const toast = useToast();
 
   useEffect(() => {
@@ -39,6 +41,7 @@ function AppContent() {
     // Listen for session expiry event from Axios interceptor
     const handleSessionExpired = () => {
       setUser(null);
+      setCurrentPage('dashboard');
       toast.showError('Session expired. Please log in again to renew authorization.', 'SESSION EXPIRED');
     };
 
@@ -50,12 +53,23 @@ function AppContent() {
 
   const handleAuthSuccess = (userData, token) => {
     setUser(userData);
+    setCurrentPage('dashboard');
   };
 
   const handleLogout = () => {
     authStorage.clearSession();
     setUser(null);
+    setCurrentPage('dashboard');
     toast.showInfo('Encrypted dark web session terminated. Agent logged out.', 'SESSION DISCONNECTED');
+  };
+
+  const handleBalanceUpdate = (newBalance) => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      const updated = { ...prev, balance: newBalance };
+      authStorage.setUser(updated);
+      return updated;
+    });
   };
 
   if (isInitializing) {
@@ -81,10 +95,27 @@ function AppContent() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       <CRTOverlay />
-      <Header user={user} onLogout={handleLogout} />
+      <Header
+        user={user}
+        onLogout={handleLogout}
+        onNavigateHome={() => setCurrentPage('dashboard')}
+        currentPage={currentPage}
+      />
 
       {user ? (
-        <DashboardPreview user={user} onLogout={handleLogout} />
+        currentPage === 'lab1' ? (
+          <Lab1Page
+            user={user}
+            onBack={() => setCurrentPage('dashboard')}
+            onBalanceUpdate={handleBalanceUpdate}
+          />
+        ) : (
+          <DashboardPreview
+            user={user}
+            onLogout={handleLogout}
+            onOpenLab1={() => setCurrentPage('lab1')}
+          />
+        )
       ) : (
         <AuthScreen onAuthSuccess={handleAuthSuccess} />
       )}

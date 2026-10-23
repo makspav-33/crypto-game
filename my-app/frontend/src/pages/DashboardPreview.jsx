@@ -8,7 +8,7 @@ import { useToast } from '../components/Toast';
  * Displays authenticated agent state, JWT token inspector,
  * session verification with GET /api/auth/me, and preview of upcoming contracts.
  */
-export default function DashboardPreview({ user, onLogout }) {
+export default function DashboardPreview({ user, onLogout, onOpenLab1 }) {
   const [profile, setProfile] = useState(user);
   const [loadingVerify, setLoadingVerify] = useState(false);
   const [lastVerifiedAt, setLastVerifiedAt] = useState(null);
@@ -295,21 +295,53 @@ export default function DashboardPreview({ user, onLogout }) {
           {/* Lab 1 */}
           <div
             style={{
-              background: 'rgba(10, 13, 20, 0.6)',
-              border: '1px solid var(--border-color)',
-              padding: '14px',
+              background: 'rgba(10, 13, 20, 0.75)',
+              border: '1px solid var(--accent-cyan)',
+              boxShadow: '0 0 12px var(--accent-cyan-glow)',
+              padding: '16px',
               borderRadius: '2px',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              gap: '12px',
             }}
           >
-            <div style={{ color: 'var(--accent-cyan)', fontSize: '0.75rem', marginBottom: '4px' }}>
-              CONTRACT #1 [EASY]
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                <span style={{ color: 'var(--accent-cyan)', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                  CONTRACT #1 [EASY]
+                </span>
+                <span
+                  style={{
+                    color: 'var(--accent-green)',
+                    background: 'rgba(0, 255, 102, 0.1)',
+                    border: '1px solid var(--accent-green)',
+                    padding: '1px 6px',
+                    fontSize: '0.65rem',
+                  }}
+                >
+                  AVAILABLE
+                </span>
+              </div>
+              <div style={{ fontWeight: 'bold', fontSize: '0.92rem', color: 'var(--text-main)', marginBottom: '6px' }}>
+                Frequency Analyzer
+              </div>
+              <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                Caesar &amp; Transposition cipher cryptanalysis with real-time histograms for UA and EN languages.
+              </div>
+              <div style={{ marginTop: '8px', fontSize: '0.75rem', color: 'var(--accent-green)' }}>
+                REWARD: <strong>$ 1,500 BTC</strong>
+              </div>
             </div>
-            <div style={{ fontWeight: 'bold', fontSize: '0.88rem', marginBottom: '6px' }}>
-              Frequency Analyzer
-            </div>
-            <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
-              Caesar / Transposition cipher cryptanalysis with language frequency histograms.
-            </div>
+
+            <button
+              type="button"
+              className="btn-cyber btn-cyber-cyan"
+              onClick={onOpenLab1}
+              style={{ width: '100%', padding: '8px', fontSize: '0.78rem' }}
+            >
+              [OPEN CONTRACT #1 &gt;&gt;]
+            </button>
           </div>
 
           {/* Lab 2 */}

@@ -4,7 +4,7 @@ import React from 'react';
  * Top Navigation Bar (Section 5.1 of HackNet Design Specification)
  * Displays HackNet OS branding, agent identity, balance, TOR network status, and logout control.
  */
-export default function Header({ user, onLogout }) {
+export default function Header({ user, onLogout, onNavigateHome, currentPage }) {
   const balanceFormatted = Number(user?.balance || 0).toLocaleString('en-US', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
@@ -27,7 +27,16 @@ export default function Header({ user, onLogout }) {
       }}
     >
       {/* OS Branding / Logo */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      <div
+        onClick={user && onNavigateHome ? onNavigateHome : undefined}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          cursor: user && onNavigateHome ? 'pointer' : 'default',
+        }}
+        title={user ? 'Return to Dashboard' : undefined}
+      >
         <span className="pulse-indicator" title="TOR Network Node Active" />
         <span
           style={{

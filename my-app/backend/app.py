@@ -2,15 +2,18 @@ import os
 from flask import Flask, jsonify
 from flask_cors import CORS
 from auth import auth_bp, init_db
+from lab1_routes import lab1_bp, init_lab1_db
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 # Initialize SQLite database tables
 init_db()
+init_lab1_db()
 
-# Register Authentication Blueprint
+# Register Blueprints
 app.register_blueprint(auth_bp)
+app.register_blueprint(lab1_bp)
 
 
 @app.route('/api/health', methods=['GET'])
