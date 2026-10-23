@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   ResponsiveContainer,
   BarChart,
@@ -9,6 +9,7 @@ import {
   Legend,
   CartesianGrid,
 } from 'recharts';
+import api from '../utils/api';
 import {
   EN_ALPHABET,
   UA_ALPHABET,
@@ -79,6 +80,13 @@ export default function CipherSandboxTab() {
   // Transposition Cipher State (Key-Based)
   const [userKey, setUserKey] = useState('CRYPTO');
   const [transMode, setTransMode] = useState('vertical'); // 'vertical' | 'horizontal' | 'diagonal'
+  const [transDirection, setTransDirection] = useState('encrypt'); // 'encrypt' | 'decrypt'
+  const [decryptInput, setDecryptInput] = useState('');
+  const [decryptData, setDecryptData] = useState(null); // response from /api/sandbox/untranspose
+  const [decryptLoading, setDecryptLoading] = useState(false);
+  const [decryptAnimStep, setDecryptAnimStep] = useState(0);
+  const [decryptIsPlaying, setDecryptIsPlaying] = useState(false);
+  const decryptTimerRef = useRef(null);
 
   // Animation State for Transposition
   const [currentStep, setCurrentStep] = useState(0);
@@ -280,9 +288,13 @@ export default function CipherSandboxTab() {
   useEffect(() => {
     setCurrentStep(0);
     setIsPlaying(false);
+    // Also reset decrypt state when key/mode changes
+    setDecryptData(null);
+    setDecryptAnimStep(0);
+    setDecryptIsPlaying(false);
   }, [transMode, cleanKey, cleanInput]);
 
-  // Animation player loop
+  // Encrypt animation player loop
   useEffect(() => {
     if (isPlaying) {
       timerRef.current = setInterval(() => {
@@ -312,6 +324,60 @@ export default function CipherSandboxTab() {
       .map((s) => s.char)
       .join('');
   }, [transpositionData.steps, currentStep]);
+
+  // ------------------------------------------------------------------
+  // DECRYPT — fetch from backend, run separate animation
+  // ------------------------------------------------------------------
+  const handleDecrypt = async () => {
+    const ct = decryptInput.trim() || transpositionData.ciphertext;
+    if (!ct) return;
+    setDecryptLoading(true);
+    setDecryptData(null);
+    setDecryptAnimStep(0);
+    setDecryptIsPlaying(false);
+    try {
+      const res = await api.post('/api/sandbox/untranspose', {
+        ciphertext: ct,
+        mode: transMode,
+        key: cleanKey,
+      });
+      setDecryptData(res.data);
+    } catch (err) {
+      console.error('Decrypt error:', err);
+    } finally {
+      setDecryptLoading(false);
+    }
+  };
+
+  // Decrypt auto-play step (pre-filled populate, then read)
+  useEffect(() => {
+    if (!decryptData) return;
+    const totalSteps = decryptData.steps.length;
+    if (decryptIsPlaying) {
+      decryptTimerRef.current = setInterval(() => {
+        setDecryptAnimStep((prev) => {
+          if (prev >= totalSteps - 1) {
+            setDecryptIsPlaying(false);
+            return prev;
+          }
+          return prev + 1;
+        });
+      }, animSpeed);
+    } else {
+      if (decryptTimerRef.current) clearInterval(decryptTimerRef.current);
+    }
+    return () => { if (decryptTimerRef.current) clearInterval(decryptTimerRef.current); };
+  }, [decryptIsPlaying, animSpeed, decryptData]);
+
+  // Accumulate plaintext from READ phase steps up to current decrypt step
+  const decryptReadOutput = useMemo(() => {
+    if (!decryptData) return '';
+    return decryptData.steps
+      .filter((s) => s.phase === 'read')
+      .slice(0, Math.max(0, decryptAnimStep - decryptData.fill_steps.length + 1))
+      .map((s) => s.char)
+      .join('');
+  }, [decryptData, decryptAnimStep]);
 
   return (
     <div
@@ -1216,6 +1282,337 @@ export default function CipherSandboxTab() {
                 <span>Diagonals are scanned across the matrix initiated from columns ordered by key ranks: {colOrder.map((c) => `${cleanKey[c]} (#${ranks[c]})`).join(' ➔ ')}.</span>
               )}
             </div>
+          </div>
+
+          {/* ================================================================
+              DECRYPT SECTION — Key-Based Transposition
+              ================================================================ */}
+          <div
+            style={{
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--accent-amber)',
+              boxShadow: '0 0 16px var(--accent-amber-glow)',
+              padding: '20px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px',
+            }}
+          >
+            {/* Decrypt Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <h3 style={{ fontSize: '0.95rem', color: 'var(--accent-amber)', margin: 0 }}>
+                  &gt; KEYED TRANSPOSITION — DECRYPTION MODE
+                </h3>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  Uses same key <strong style={{ color: 'var(--accent-cyan)' }}>"{cleanKey}"</strong> and mode <strong style={{ color: 'var(--accent-cyan)' }}>[{transMode.toUpperCase()}]</strong> to reverse the cipher
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <div
+                  style={{
+                    width: '10px', height: '10px', borderRadius: '50%',
+                    background: 'var(--accent-amber)',
+                    boxShadow: '0 0 8px var(--accent-amber-glow)',
+                  }}
+                />
+                <span style={{ fontSize: '0.72rem', color: 'var(--accent-amber)', letterSpacing: '0.06em' }}>
+                  PHASE 1: FILL MATRIX ▶ PHASE 2: READ ROWS
+                </span>
+              </div>
+            </div>
+
+            {/* Ciphertext Input with quick-fill from encrypt output */}
+            <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: '260px' }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '4px', letterSpacing: '0.05em' }}>
+                  CIPHERTEXT INPUT (paste or auto-fill from encrypt result):
+                </div>
+                <div className="cyber-input-container" style={{ borderColor: 'var(--accent-amber)' }}>
+                  <span className="cyber-input-prefix" style={{ color: 'var(--accent-amber)' }}>ct@dec:~$</span>
+                  <input
+                    type="text"
+                    className="cyber-input"
+                    value={decryptInput}
+                    onChange={(e) => setDecryptInput(e.target.value.toUpperCase())}
+                    placeholder="Paste ciphertext or leave empty to use current encrypt output..."
+                    spellCheck="false"
+                    style={{ caretColor: 'var(--accent-amber)' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px', paddingTop: '18px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => setDecryptInput(transpositionData.ciphertext)}
+                  style={{
+                    background: 'rgba(255, 170, 0, 0.1)',
+                    border: '1px solid var(--accent-amber)',
+                    color: 'var(--accent-amber)',
+                    padding: '8px 12px',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '0.75rem',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
+                  title="Load ciphertext from encrypt output above"
+                >
+                  ↑ USE ENCRYPT OUTPUT
+                </button>
+                <button
+                  type="button"
+                  className="btn-cyber"
+                  onClick={handleDecrypt}
+                  disabled={decryptLoading}
+                  style={{
+                    padding: '8px 18px',
+                    fontSize: '0.85rem',
+                    background: 'var(--accent-amber)',
+                    color: 'var(--bg-main)',
+                    borderColor: 'var(--accent-amber)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {decryptLoading ? (
+                    <><span className="pulse-indicator" /> DECRYPTING...</>
+                  ) : (
+                    '🔓 [DECRYPT >>]'
+                  )}
+                </button>
+                {decryptData && (
+                  <button
+                    type="button"
+                    className="btn-cyber btn-cyber-danger"
+                    onClick={() => { setDecryptData(null); setDecryptAnimStep(0); setDecryptIsPlaying(false); }}
+                    style={{ padding: '8px 12px', fontSize: '0.75rem' }}
+                  >
+                    [CLEAR]
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Decrypt Result Visualization */}
+            {decryptData && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                {/* Decrypt Animation Controls */}
+                <div
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap',
+                    borderTop: '1px dashed var(--accent-amber)', paddingTop: '12px',
+                  }}
+                >
+                  <button type="button" className="btn-cyber" onClick={() => setDecryptIsPlaying(!decryptIsPlaying)} style={{ padding: '5px 12px', fontSize: '0.78rem' }}>
+                    {decryptIsPlaying ? '❚❚ PAUSE' : '▶ PLAY'}
+                  </button>
+                  <button type="button" className="btn-cyber" onClick={() => { setDecryptIsPlaying(false); setDecryptAnimStep((p) => Math.max(0, p - 1)); }} disabled={decryptAnimStep === 0} style={{ padding: '5px 10px', fontSize: '0.78rem' }}>◀ PREV</button>
+                  <button type="button" className="btn-cyber" onClick={() => { setDecryptIsPlaying(false); setDecryptAnimStep((p) => Math.min(decryptData.steps.length - 1, p + 1)); }} disabled={decryptAnimStep >= decryptData.steps.length - 1} style={{ padding: '5px 10px', fontSize: '0.78rem' }}>NEXT ▶</button>
+                  <button type="button" className="btn-cyber btn-cyber-danger" onClick={() => { setDecryptIsPlaying(false); setDecryptAnimStep(0); }} style={{ padding: '5px 10px', fontSize: '0.78rem' }}>[RESET]</button>
+
+                  {/* Phase indicator */}
+                  {(() => {
+                    const fillCount = decryptData.fill_steps.length;
+                    const inFillPhase = decryptAnimStep < fillCount;
+                    const step = decryptData.steps[decryptAnimStep];
+                    return (
+                      <span style={{ fontSize: '0.78rem', color: inFillPhase ? 'var(--accent-amber)' : 'var(--accent-green)', marginLeft: '6px' }}>
+                        {inFillPhase
+                          ? `PHASE 1: FILL [${decryptAnimStep + 1}/${fillCount}]`
+                          : `PHASE 2: READ [${decryptAnimStep - fillCount + 1}/${decryptData.read_steps.length}]`}
+                        {step && <span style={{ color: 'var(--text-muted)', marginLeft: '8px' }}>— {step.path_desc}</span>}
+                      </span>
+                    );
+                  })()}
+                </div>
+
+                {/* Decrypt 2D Matrix Grid */}
+                <div
+                  style={{
+                    overflowX: 'auto',
+                    background: 'rgba(10, 13, 20, 0.95)',
+                    padding: '16px',
+                    border: '1px solid var(--accent-amber)',
+                    boxShadow: '0 0 10px var(--accent-amber-glow)',
+                  }}
+                >
+                  <div style={{ fontSize: '0.72rem', color: 'var(--accent-amber)', marginBottom: '10px', fontWeight: 'bold' }}>
+                    DECRYPT MATRIX — PHASE 1: Columns filled in key order ▶ PHASE 2: Read row-by-row
+                  </div>
+                  <table style={{ borderCollapse: 'separate', borderSpacing: '5px', margin: '0 auto' }}>
+                    <thead>
+                      {/* Key letters */}
+                      <tr>
+                        <th style={{ color: 'var(--text-muted)', fontSize: '0.68rem', padding: '3px' }}>KEY</th>
+                        {cleanKey.split('').map((kChar, cIdx) => (
+                          <th
+                            key={cIdx}
+                            style={{
+                              background: 'rgba(255, 170, 0, 0.1)',
+                              border: '1px solid rgba(255, 170, 0, 0.4)',
+                              color: 'var(--accent-amber)',
+                              fontSize: '1rem',
+                              fontFamily: 'var(--font-mono)',
+                              fontWeight: 'bold',
+                              padding: '5px 10px',
+                              textAlign: 'center',
+                            }}
+                          >
+                            {kChar}
+                          </th>
+                        ))}
+                      </tr>
+                      {/* Ranks */}
+                      <tr>
+                        <th style={{ color: 'var(--text-muted)', fontSize: '0.68rem', padding: '3px' }}>RANK</th>
+                        {ranks.map((rankVal, cIdx) => (
+                          <th
+                            key={cIdx}
+                            style={{
+                              background: 'rgba(0, 240, 255, 0.06)',
+                              border: '1px dashed rgba(0, 240, 255, 0.25)',
+                              color: 'var(--accent-cyan)',
+                              fontSize: '0.75rem',
+                              fontFamily: 'var(--font-mono)',
+                              padding: '3px 8px',
+                              textAlign: 'center',
+                            }}
+                          >
+                            #{rankVal}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {decryptData.matrix.map((rowArr, rIdx) => (
+                        <tr key={rIdx}>
+                          <td style={{ color: 'var(--text-muted)', fontSize: '0.72rem', fontFamily: 'var(--font-mono)', padding: '4px 8px', textAlign: 'center' }}>
+                            R{rIdx + 1}
+                          </td>
+                          {rowArr.map((cellChar, cIdx) => {
+                            // Which step index corresponds to this cell being filled?
+                            const fillStepIdx = decryptData.fill_steps.findIndex(
+                              (s) => s.row === rIdx && s.col === cIdx
+                            );
+                            const isFilled = fillStepIdx !== -1 && fillStepIdx <= decryptAnimStep;
+
+                            // Which step index corresponds to this cell being read?
+                            const readStepIdx = decryptData.fill_steps.length +
+                              decryptData.read_steps.findIndex((s) => s.row === rIdx && s.col === cIdx);
+                            const isRead = decryptData.read_steps.some((s) => s.row === rIdx && s.col === cIdx) &&
+                              readStepIdx <= decryptAnimStep;
+
+                            // Active cell this exact step
+                            const currentStepObj = decryptData.steps[decryptAnimStep];
+                            const isActive = currentStepObj?.row === rIdx && currentStepObj?.col === cIdx;
+                            const inFillPhase = decryptAnimStep < decryptData.fill_steps.length;
+
+                            const displayChar = isFilled ? cellChar : '';
+
+                            return (
+                              <td
+                                key={cIdx}
+                                style={{
+                                  width: '44px',
+                                  height: '44px',
+                                  textAlign: 'center',
+                                  verticalAlign: 'middle',
+                                  fontFamily: 'var(--font-mono)',
+                                  fontSize: '1rem',
+                                  fontWeight: 'bold',
+                                  color: isActive
+                                    ? 'var(--bg-main)'
+                                    : isRead
+                                    ? 'var(--accent-green)'
+                                    : isFilled
+                                    ? 'var(--accent-amber)'
+                                    : 'var(--text-muted)',
+                                  background: isActive
+                                    ? (inFillPhase ? 'var(--accent-amber)' : 'var(--accent-green)')
+                                    : isRead
+                                    ? 'rgba(0, 255, 102, 0.12)'
+                                    : isFilled
+                                    ? 'rgba(255, 170, 0, 0.12)'
+                                    : 'rgba(18, 24, 36, 0.7)',
+                                  border: isActive
+                                    ? '2px solid #fff'
+                                    : isRead
+                                    ? '1px solid var(--accent-green)'
+                                    : isFilled
+                                    ? '1px solid rgba(255, 170, 0, 0.5)'
+                                    : '1px solid var(--border-color)',
+                                  boxShadow: isActive
+                                    ? `0 0 16px ${inFillPhase ? 'var(--accent-amber-glow)' : 'var(--accent-green-glow)'}`
+                                    : isRead
+                                    ? '0 0 6px var(--accent-green-glow)'
+                                    : 'none',
+                                  transition: 'all 0.2s ease',
+                                  opacity: displayChar ? 1 : 0.2,
+                                }}
+                              >
+                                {displayChar || '?'}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Recovered Plaintext Stream */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--accent-green)', fontWeight: 'bold' }}>
+                      &gt; RECOVERED PLAINTEXT STREAM (PHASE 2 READ OUTPUT):
+                    </span>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      {decryptReadOutput.length} of {decryptData.plaintext.length} chars recovered
+                    </span>
+                  </div>
+                  <div
+                    style={{
+                      background: 'var(--bg-main)',
+                      border: '1px solid var(--accent-green)',
+                      boxShadow: '0 0 12px var(--accent-green-glow)',
+                      padding: '14px 18px',
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '1.05rem',
+                      color: 'var(--accent-green)',
+                      letterSpacing: '0.08em',
+                      minHeight: '52px',
+                      wordBreak: 'break-all',
+                      display: 'flex',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <span>{decryptReadOutput}</span>
+                    {decryptReadOutput.length < decryptData.plaintext.length && (
+                      <span className="cursor-blink" aria-hidden="true" />
+                    )}
+                  </div>
+
+                  {/* Final confirmed result */}
+                  {decryptAnimStep >= decryptData.steps.length - 1 && (
+                    <div
+                      style={{
+                        background: 'rgba(0, 255, 102, 0.08)',
+                        border: '1px solid var(--accent-green)',
+                        padding: '12px 16px',
+                        fontSize: '0.82rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                      }}
+                    >
+                      <span style={{ color: 'var(--accent-green)', fontWeight: 'bold' }}>✓ DECRYPTION COMPLETE</span>
+                      <span style={{ color: 'var(--text-muted)' }}>Full plaintext:</span>
+                      <code style={{ color: 'var(--text-code)' }}>{decryptData.plaintext}</code>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

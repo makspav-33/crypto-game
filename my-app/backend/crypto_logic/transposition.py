@@ -152,3 +152,168 @@ def transpose_cipher(text: str, mode: str = "vertical", key: str = "KEY", cols: 
         "steps": steps,
         "ciphertext": ciphertext
     }
+
+
+def untranspose_cipher(ciphertext: str, mode: str = "vertical", key: str = "KEY"):
+    """
+    Decrypt keyed transposition cipher.
+    Reconstructs the original 2D matrix from ciphertext, then reads row-by-row.
+    Returns matrix, step-by-step fill sequence, and recovered plaintext.
+    """
+    clean_ct = ciphertext if ciphertext else ""
+    clean_key, col_order, ranks = get_key_order(key)
+    cols = len(clean_key)
+    length = len(clean_ct)
+    rows = max(1, math.ceil(length / cols))
+
+    # Full cells vs padded cells (last row may be short)
+    full_cols = length % cols  # how many cols in the last row have a real char
+    if full_cols == 0:
+        full_cols = cols        # all columns are full
+
+    # step_num counter shared across phases
+    step_num = 0
+
+    if mode == "vertical":
+        # Invert: ciphertext was read col-by-col in col_order.
+        # Now pour back col-by-col in the same order.
+        matrix = [["" for _ in range(cols)] for _ in range(rows)]
+        fill_steps = []
+        idx = 0
+        for order_rank, c in enumerate(col_order):
+            key_letter = clean_key[c]
+            rank = ranks[c]
+            # Determine how many rows this column holds
+            col_rows = rows if (order_rank < full_cols or full_cols == cols) else rows - 1
+            for r in range(col_rows):
+                if idx < length:
+                    ch = clean_ct[idx]
+                    matrix[r][c] = ch
+                    fill_steps.append({
+                        "step": step_num, "row": r, "col": c,
+                        "char": ch, "key_letter": key_letter, "rank": rank,
+                        "phase": "fill",
+                        "path_desc": f"Fill Col #{c+1} [Key '{key_letter}' Rank #{rank}] Row #{r+1} ← '{ch}'"
+                    })
+                    step_num += 1
+                    idx += 1
+
+        # Read row-by-row to recover plaintext
+        read_steps = []
+        plaintext_chars = []
+        for r in range(rows):
+            for c in range(cols):
+                ch = matrix[r][c]
+                if ch:
+                    plaintext_chars.append(ch)
+                    read_steps.append({
+                        "step": step_num, "row": r, "col": c,
+                        "char": ch, "key_letter": clean_key[c], "rank": ranks[c],
+                        "phase": "read",
+                        "path_desc": f"Read Row #{r+1} Col #{c+1} → '{ch}'"
+                    })
+                    step_num += 1
+
+    elif mode == "horizontal":
+        # Invert: ciphertext was read row-by-row with col permutation.
+        # Pour back the same way, then read left-to-right.
+        matrix = [["" for _ in range(cols)] for _ in range(rows)]
+        fill_steps = []
+        idx = 0
+        for r in range(rows):
+            for order_rank, c in enumerate(col_order):
+                key_letter = clean_key[c]
+                rank = ranks[c]
+                if idx < length:
+                    ch = clean_ct[idx]
+                    matrix[r][c] = ch
+                    fill_steps.append({
+                        "step": step_num, "row": r, "col": c,
+                        "char": ch, "key_letter": key_letter, "rank": rank,
+                        "phase": "fill",
+                        "path_desc": f"Fill Row #{r+1} [Key '{key_letter}' Rank #{rank}] Col #{c+1} ← '{ch}'"
+                    })
+                    step_num += 1
+                    idx += 1
+
+        read_steps = []
+        plaintext_chars = []
+        for r in range(rows):
+            for c in range(cols):
+                ch = matrix[r][c]
+                if ch:
+                    plaintext_chars.append(ch)
+                    read_steps.append({
+                        "step": step_num, "row": r, "col": c,
+                        "char": ch, "key_letter": clean_key[c], "rank": ranks[c],
+                        "phase": "read",
+                        "path_desc": f"Read Row #{r+1} Col #{c+1} → '{ch}'"
+                    })
+                    step_num += 1
+
+    else:  # diagonal
+        # Invert: rebuild visited order, pour chars back, then read row-by-row.
+        visited_order = []
+        visited_set = set()
+        for c_start in col_order:
+            for r in range(rows):
+                c = (c_start + r) % cols
+                key = (r, c)
+                if key not in visited_set:
+                    visited_set.add(key)
+                    visited_order.append((r, c, c_start))
+        for r in range(rows):
+            for c in range(cols):
+                if (r, c) not in visited_set:
+                    visited_set.add((r, c))
+                    visited_order.append((r, c, c))
+
+        matrix = [["" for _ in range(cols)] for _ in range(rows)]
+        fill_steps = []
+        for idx, (r, c, c_start) in enumerate(visited_order):
+            if idx >= length:
+                break
+            ch = clean_ct[idx]
+            key_letter = clean_key[c_start]
+            rank = ranks[c_start]
+            matrix[r][c] = ch
+            fill_steps.append({
+                "step": step_num, "row": r, "col": c,
+                "char": ch, "key_letter": key_letter, "rank": rank,
+                "phase": "fill",
+                "path_desc": f"Fill Diagonal [Key '{key_letter}' Rank #{rank}] ({r+1},{c+1}) ← '{ch}'"
+            })
+            step_num += 1
+
+        read_steps = []
+        plaintext_chars = []
+        for r in range(rows):
+            for c in range(cols):
+                ch = matrix[r][c]
+                if ch:
+                    plaintext_chars.append(ch)
+                    read_steps.append({
+                        "step": step_num, "row": r, "col": c,
+                        "char": ch, "key_letter": clean_key[c], "rank": ranks[c],
+                        "phase": "read",
+                        "path_desc": f"Read Row #{r+1} Col #{c+1} → '{ch}'"
+                    })
+                    step_num += 1
+
+    plaintext = "".join(plaintext_chars).replace("•", "").rstrip()
+    all_steps = fill_steps + read_steps
+
+    return {
+        "ciphertext": clean_ct,
+        "key": clean_key,
+        "col_order": col_order,
+        "ranks": ranks,
+        "mode": mode,
+        "rows": rows,
+        "cols": cols,
+        "matrix": matrix,
+        "fill_steps": fill_steps,
+        "read_steps": read_steps,
+        "steps": all_steps,
+        "plaintext": plaintext
+    }

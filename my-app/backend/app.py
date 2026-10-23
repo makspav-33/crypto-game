@@ -3,7 +3,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 from auth import auth_bp, init_db
 from lab1_routes import lab1_bp, init_lab1_db
-from crypto_logic.transposition import transpose_cipher
+from crypto_logic.transposition import transpose_cipher, untranspose_cipher
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
@@ -24,6 +24,16 @@ def sandbox_transpose():
     mode = data.get('mode', 'vertical')
     key = data.get('key', 'KEY')
     result = transpose_cipher(text, mode, key)
+    return jsonify(result)
+
+
+@app.route('/api/sandbox/untranspose', methods=['POST'])
+def sandbox_untranspose():
+    data = request.get_json(silent=True) or {}
+    ciphertext = data.get('ciphertext', '')
+    mode = data.get('mode', 'vertical')
+    key = data.get('key', 'KEY')
+    result = untranspose_cipher(ciphertext, mode, key)
     return jsonify(result)
 
 
