@@ -1,19 +1,41 @@
 # -*- coding: utf-8 -*-
 """
-Transposition Cipher helper module for Cipher Lab / Sandbox.
-Supports Vertical (Columnar), Horizontal (Snake/Boustrophedon), and Diagonal (Rail-Fence) transpositions.
+Key-based Transposition Cipher helper module for Cipher Lab / Sandbox.
+Supports Vertical (Columnar), Horizontal (Row-Permuted), and Diagonal (Key-Guided Diagonal) transpositions.
 """
 import math
 
 
-def transpose_cipher(text: str, mode: str = "vertical", cols: int = 5):
+def get_key_order(key: str):
     """
-    Generate 2D matrix, step-by-step traversal path, and resulting ciphertext.
+    Calculate column order and 1-based ranks from user key.
+    Example: key 'CAB' -> col_order [1, 2, 0], ranks [3, 1, 2].
+    """
+    clean_key = ''.join([c for c in (key or 'KEY').upper() if c.isalnum()])
+    if not clean_key:
+        clean_key = 'KEY'
+
+    # Pair with original index and sort alphabetically (stable sort for ties)
+    indexed = [(c, i) for i, c in enumerate(clean_key)]
+    sorted_pairs = sorted(indexed, key=lambda x: x[0])
+
+    col_order = [p[1] for p in sorted_pairs]
+    ranks = [0] * len(clean_key)
+    for rank_idx, (c, orig_idx) in enumerate(sorted_pairs):
+        ranks[orig_idx] = rank_idx + 1
+
+    return clean_key, col_order, ranks
+
+
+def transpose_cipher(text: str, mode: str = "vertical", key: str = "KEY", cols: int = None):
+    """
+    Generate 2D matrix, step-by-step traversal path, and resulting ciphertext based on user text key.
     """
     clean_text = text if text else "HACKNET PROTOCOL CIPHER LAB"
+    clean_key, col_order, ranks = get_key_order(key)
+    cols = len(clean_key)
     length = len(clean_text)
-    cols = max(2, min(cols, 12))
-    rows = math.ceil(length / cols)
+    rows = max(1, math.ceil(length / cols))
 
     # 1. Fill 2D Matrix (row by row)
     matrix = []
@@ -25,16 +47,18 @@ def transpose_cipher(text: str, mode: str = "vertical", cols: int = 5):
                 row.append(clean_text[char_idx])
                 char_idx += 1
             else:
-                row.append(" ")  # Padding space
+                row.append("•")  # Padding marker
         matrix.append(row)
 
     steps = []
     ciphertext_chars = []
+    step_num = 0
 
     if mode == "vertical":
-        # Columnar: read column-by-column (top to bottom)
-        step_num = 0
-        for c in range(cols):
+        # Keyed Columnar: Read column-by-column in order of key ranks
+        for order_idx, c in enumerate(col_order):
+            key_letter = clean_key[c]
+            rank = ranks[c]
             for r in range(rows):
                 ch = matrix[r][c]
                 ciphertext_chars.append(ch)
@@ -43,17 +67,19 @@ def transpose_cipher(text: str, mode: str = "vertical", cols: int = 5):
                     "row": r,
                     "col": c,
                     "char": ch,
-                    "direction": "down"
+                    "key_letter": key_letter,
+                    "rank": rank,
+                    "direction": "down",
+                    "path_desc": f"Key '{key_letter}' (Rank #{rank}) ➔ Col #{c + 1}, Row #{r + 1}"
                 })
                 step_num += 1
 
     elif mode == "horizontal":
-        # Snake / Boustrophedon horizontal transposition:
-        # even rows L->R, odd rows R->L
-        step_num = 0
+        # Key-Permuted Horizontal: In each row, extract characters in order of key ranks
         for r in range(rows):
-            col_range = range(cols) if r % 2 == 0 else range(cols - 1, -1, -1)
-            for c in col_range:
+            for c in col_order:
+                key_letter = clean_key[c]
+                rank = ranks[c]
                 ch = matrix[r][c]
                 ciphertext_chars.append(ch)
                 steps.append({
@@ -61,38 +87,54 @@ def transpose_cipher(text: str, mode: str = "vertical", cols: int = 5):
                     "row": r,
                     "col": c,
                     "char": ch,
-                    "direction": "right" if r % 2 == 0 else "left"
+                    "key_letter": key_letter,
+                    "rank": rank,
+                    "direction": "horizontal",
+                    "path_desc": f"Row #{r + 1} ➔ Key '{key_letter}' (Rank #{rank}) at Col #{c + 1}"
                 })
                 step_num += 1
 
     elif mode == "diagonal":
-        # Diagonal / Rail-fence zigzag traversal across rows
-        # Place characters in zigzag path across rails (rows)
-        rail_matrix = [["" for _ in range(length)] for _ in range(rows)]
-        cur_row = 0
-        going_down = False
-
-        for i in range(length):
-            rail_matrix[cur_row][i] = clean_text[i]
-            if cur_row == 0 or cur_row == rows - 1:
-                going_down = not going_down
-            cur_row += 1 if going_down else -1
-
-        # Read row by row across columns
-        step_num = 0
-        matrix = rail_matrix  # Use rail matrix for diagonal display
-        cols = length
-        for r in range(rows):
-            for c in range(length):
-                ch = rail_matrix[r][c]
-                if ch != "":
+        # Key-Guided Diagonal Transposition:
+        # Traverse diagonals initiated from columns ordered by key rank
+        visited = set()
+        for c_start in col_order:
+            key_letter = clean_key[c_start]
+            rank = ranks[c_start]
+            for r in range(rows):
+                c = (c_start + r) % cols
+                if (r, c) not in visited:
+                    visited.add((r, c))
+                    ch = matrix[r][c]
                     ciphertext_chars.append(ch)
                     steps.append({
                         "step": step_num,
                         "row": r,
                         "col": c,
                         "char": ch,
-                        "direction": "diagonal"
+                        "key_letter": key_letter,
+                        "rank": rank,
+                        "direction": "diagonal",
+                        "path_desc": f"Diagonal [Key '{key_letter}' #{rank}] ➔ ({r + 1}, {c + 1})"
+                    })
+                    step_num += 1
+
+        # Catch any remaining cells
+        for r in range(rows):
+            for c in range(cols):
+                if (r, c) not in visited:
+                    visited.add((r, c))
+                    ch = matrix[r][c]
+                    ciphertext_chars.append(ch)
+                    steps.append({
+                        "step": step_num,
+                        "row": r,
+                        "col": c,
+                        "char": ch,
+                        "key_letter": clean_key[c],
+                        "rank": ranks[c],
+                        "direction": "diagonal",
+                        "path_desc": f"Diagonal residual ➔ ({r + 1}, {c + 1})"
                     })
                     step_num += 1
 
@@ -100,6 +142,9 @@ def transpose_cipher(text: str, mode: str = "vertical", cols: int = 5):
 
     return {
         "text": clean_text,
+        "key": clean_key,
+        "col_order": col_order,
+        "ranks": ranks,
         "mode": mode,
         "rows": rows,
         "cols": cols,

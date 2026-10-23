@@ -1,5 +1,22 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { EN_ALPHABET, UA_ALPHABET, decryptCaesar } from '../utils/caesarHelper';
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+  CartesianGrid,
+} from 'recharts';
+import {
+  EN_ALPHABET,
+  UA_ALPHABET,
+  EN_REFERENCE_FREQ,
+  UA_REFERENCE_FREQ,
+  calculateTextFrequencies,
+  getKeyOrder,
+} from '../utils/caesarHelper';
 
 const PRESET_TEXTS = [
   { label: 'HACKNET PROTOCOL', text: 'HACKNET PROTOCOL CIPHER LAB' },
@@ -7,6 +24,47 @@ const PRESET_TEXTS = [
   { label: 'DARKWEB RELAY', text: 'TOR NODE PROXY ENCRYPTED CHANNEL' },
   { label: 'UKRAINIAN INTEL', text: 'ПЕРЕХОПЛЕНО ТАЄМНИЙ СИГНАЛ' },
 ];
+
+const PRESET_KEYS = ['KEY', 'CAB', 'HACK', 'CRYPTO', 'MATRIX', 'CIPHER'];
+
+// Cyberpunk Tooltip for Histogram
+function CyberpunkHistogramTooltip({ active, payload, label }) {
+  if (active && payload && payload.length) {
+    const cipherVal = payload.find((p) => p.dataKey === 'ciphertext')?.value ?? 0;
+    const refVal = payload.find((p) => p.dataKey === 'reference')?.value ?? 0;
+    const delta = Math.abs(cipherVal - refVal).toFixed(2);
+
+    return (
+      <div
+        style={{
+          background: 'rgba(10, 13, 20, 0.95)',
+          border: '1px solid var(--accent-cyan)',
+          boxShadow: '0 0 12px var(--accent-cyan-glow)',
+          padding: '10px 14px',
+          fontFamily: 'var(--font-mono)',
+          fontSize: '0.78rem',
+          borderRadius: '3px',
+        }}
+      >
+        <div style={{ color: 'var(--accent-cyan)', fontWeight: 'bold', marginBottom: '4px' }}>
+          CHARACTER: [{label}]
+        </div>
+        <div style={{ color: 'var(--accent-red)', display: 'flex', gap: '8px' }}>
+          <span>● Encrypted Stream:</span>
+          <strong>{cipherVal}%</strong>
+        </div>
+        <div style={{ color: 'var(--accent-green)', display: 'flex', gap: '8px' }}>
+          <span>● Reference Standard:</span>
+          <strong>{refVal}%</strong>
+        </div>
+        <div style={{ color: 'var(--text-muted)', marginTop: '4px', borderTop: '1px dashed var(--border-color)', paddingTop: '4px' }}>
+          Variance Delta: <span style={{ color: 'var(--accent-amber)' }}>{delta}%</span>
+        </div>
+      </div>
+    );
+  }
+  return null;
+}
 
 export default function CipherSandboxTab() {
   const [activeCipherType, setActiveCipherType] = useState('shift'); // 'shift' | 'transposition'
@@ -16,11 +74,11 @@ export default function CipherSandboxTab() {
   // Shift Cipher State
   const [shiftKey, setShiftKey] = useState(3);
   const [hoveredCharIndex, setHoveredCharIndex] = useState(null);
+  const [chartSortBy, setChartSortBy] = useState('alpha'); // 'alpha' | 'freq'
 
-  // Transposition Cipher State
+  // Transposition Cipher State (Key-Based)
+  const [userKey, setUserKey] = useState('CRYPTO');
   const [transMode, setTransMode] = useState('vertical'); // 'vertical' | 'horizontal' | 'diagonal'
-  const [matrixCols, setMatrixCols] = useState(5);
-  const [railRows, setRailRows] = useState(3);
 
   // Animation State for Transposition
   const [currentStep, setCurrentStep] = useState(0);
@@ -31,13 +89,13 @@ export default function CipherSandboxTab() {
   const alphabet = language === 'ua' ? UA_ALPHABET : EN_ALPHABET;
   const maxShift = alphabet.length - 1;
 
-  // Clean formatted text for matrix
+  // Clean formatted input text
   const cleanInput = useMemo(() => {
     return (inputText || 'HACKNET').toUpperCase();
   }, [inputText]);
 
   // -------------------------------------------------------------
-  // SHIFT CIPHER LOGIC & CHARACTER TRACKS
+  // 1. SHIFT CIPHER LOGIC & ALIGNMENT TRACKS
   // -------------------------------------------------------------
   const shiftedAlphabet = useMemo(() => {
     const n = alphabet.length;
@@ -45,7 +103,7 @@ export default function CipherSandboxTab() {
     return alphabet.slice(k) + alphabet.slice(0, k);
   }, [alphabet, shiftKey]);
 
-  // Encrypted text for Shift
+  // Encrypted text stream for Shift
   const shiftEncryptedText = useMemo(() => {
     const n = alphabet.length;
     const k = ((shiftKey % n) + n) % n;
@@ -61,136 +119,168 @@ export default function CipherSandboxTab() {
       .join('');
   }, [cleanInput, alphabet, shiftKey]);
 
+  // Real-time frequency calculation for Shift Encrypted Text
+  const encryptedFrequencies = useMemo(() => {
+    return calculateTextFrequencies(shiftEncryptedText, language);
+  }, [shiftEncryptedText, language]);
+
+  // Active reference table
+  const activeReference = language === 'ua' ? UA_REFERENCE_FREQ : EN_REFERENCE_FREQ;
+
+  // Build Shift Frequency Histogram Dataset
+  const shiftHistogramData = useMemo(() => {
+    const data = alphabet.split('').map((char) => {
+      return {
+        letter: char,
+        ciphertext: encryptedFrequencies[char] || 0,
+        reference: activeReference[char] || 0,
+      };
+    });
+
+    if (chartSortBy === 'freq') {
+      return [...data].sort((a, b) => b.ciphertext - a.ciphertext);
+    }
+    return data;
+  }, [alphabet, encryptedFrequencies, activeReference, chartSortBy]);
+
   // -------------------------------------------------------------
-  // TRANSPOSITION CIPHER LOGIC & MATRIX GENERATION
+  // 2. KEY-BASED TRANSPOSITION CIPHER LOGIC
   // -------------------------------------------------------------
+  const { cleanKey, colOrder, ranks } = useMemo(() => {
+    return getKeyOrder(userKey);
+  }, [userKey]);
+
   const transpositionData = useMemo(() => {
     const chars = cleanInput.split('');
     const len = chars.length;
+    const cols = cleanKey.length;
+    const rows = Math.max(1, Math.ceil(len / cols));
 
-    if (transMode === 'diagonal') {
-      // Rail-Fence Zigzag Diagonal Transposition
-      const rows = Math.max(2, Math.min(railRows, 6));
-      const grid = Array.from({ length: rows }, () => Array(len).fill(''));
-
-      let r = 0;
-      let goingDown = false;
-      const pathSteps = [];
-
-      // Step 1: Place chars in zigzag pattern
-      for (let c = 0; c < len; c++) {
-        grid[r][c] = chars[c];
-        if (r === 0 || r === rows - 1) {
-          goingDown = !goingDown;
-        }
-        r += goingDown ? 1 : -1;
-      }
-
-      // Step 2: Read row by row
-      let stepCounter = 0;
-      const cipherChars = [];
-      for (let rowIdx = 0; rowIdx < rows; rowIdx++) {
-        for (let colIdx = 0; colIdx < len; colIdx++) {
-          if (grid[rowIdx][colIdx] !== '') {
-            cipherChars.push(grid[rowIdx][colIdx]);
-            pathSteps.push({
-              step: stepCounter,
-              row: rowIdx,
-              col: colIdx,
-              char: grid[rowIdx][colIdx],
-              pathDesc: `Rail #${rowIdx + 1} at Col ${colIdx + 1}`,
-            });
-            stepCounter++;
-          }
+    // Fill 2D Matrix (row by row)
+    const grid = [];
+    let charIdx = 0;
+    for (let r = 0; r < rows; r++) {
+      const rowArr = [];
+      for (let c = 0; c < cols; c++) {
+        if (charIdx < len) {
+          rowArr.push(chars[charIdx]);
+          charIdx++;
+        } else {
+          rowArr.push('•'); // Padding marker
         }
       }
-
-      return {
-        rows,
-        cols: len,
-        grid,
-        steps: pathSteps,
-        ciphertext: cipherChars.join(''),
-        isRailFence: true,
-      };
-    } else {
-      // Standard 2D Grid (Vertical or Horizontal)
-      const cols = Math.max(2, Math.min(matrixCols, 10));
-      const rows = Math.ceil(len / cols);
-      const grid = [];
-      let charIdx = 0;
-
-      for (let r = 0; r < rows; r++) {
-        const rowArr = [];
-        for (let c = 0; c < cols; c++) {
-          if (charIdx < len) {
-            rowArr.push(chars[charIdx]);
-            charIdx++;
-          } else {
-            rowArr.push('•'); // Padding
-          }
-        }
-        grid.push(rowArr);
-      }
-
-      const pathSteps = [];
-      const cipherChars = [];
-      let stepCounter = 0;
-
-      if (transMode === 'vertical') {
-        // Read Column-by-Column (Top to Bottom)
-        for (let c = 0; c < cols; c++) {
-          for (let r = 0; r < rows; r++) {
-            const ch = grid[r][c];
-            cipherChars.push(ch);
-            pathSteps.push({
-              step: stepCounter,
-              row: r,
-              col: c,
-              char: ch,
-              pathDesc: `Col ${c + 1} ➔ Row ${r + 1}`,
-            });
-            stepCounter++;
-          }
-        }
-      } else {
-        // Horizontal: Alternating snake path (Boustrophedon)
-        for (let r = 0; r < rows; r++) {
-          const colIndices = r % 2 === 0
-            ? Array.from({ length: cols }, (_, i) => i)
-            : Array.from({ length: cols }, (_, i) => cols - 1 - i);
-
-          for (let c of colIndices) {
-            const ch = grid[r][c];
-            cipherChars.push(ch);
-            pathSteps.push({
-              step: stepCounter,
-              row: r,
-              col: c,
-              char: ch,
-              pathDesc: `Row ${r + 1} (${r % 2 === 0 ? 'L ➔ R' : 'R ➔ L'}) Col ${c + 1}`,
-            });
-            stepCounter++;
-          }
-        }
-      }
-
-      return {
-        rows,
-        cols,
-        grid,
-        steps: pathSteps,
-        ciphertext: cipherChars.join(''),
-        isRailFence: false,
-      };
+      grid.push(rowArr);
     }
-  }, [cleanInput, transMode, matrixCols, railRows]);
 
-  // Reset or constrain animation step when matrix changes
+    const pathSteps = [];
+    const cipherChars = [];
+    let stepCounter = 0;
+
+    if (transMode === 'vertical') {
+      // Keyed Columnar: Read column-by-column in order of key ranks
+      for (let c of colOrder) {
+        const keyChar = cleanKey[c];
+        const rank = ranks[c];
+        for (let r = 0; r < rows; r++) {
+          const ch = grid[r][c];
+          cipherChars.push(ch);
+          pathSteps.push({
+            step: stepCounter,
+            row: r,
+            col: c,
+            char: ch,
+            keyChar,
+            rank,
+            pathDesc: `Col #${c + 1} ['${keyChar}' Rank #${rank}] ➔ Row #${r + 1}`,
+          });
+          stepCounter++;
+        }
+      }
+    } else if (transMode === 'horizontal') {
+      // Key-Permuted Horizontal: In each row, extract characters in order of key ranks
+      for (let r = 0; r < rows; r++) {
+        for (let c of colOrder) {
+          const keyChar = cleanKey[c];
+          const rank = ranks[c];
+          const ch = grid[r][c];
+          cipherChars.push(ch);
+          pathSteps.push({
+            step: stepCounter,
+            row: r,
+            col: c,
+            char: ch,
+            keyChar,
+            rank,
+            pathDesc: `Row #${r + 1} ➔ Col #${c + 1} ['${keyChar}' Rank #${rank}]`,
+          });
+          stepCounter++;
+        }
+      }
+    } else {
+      // Key-Guided Diagonal Transposition:
+      // Traverse diagonals initiated from columns in key rank order
+      const visited = new Set();
+      for (let cStart of colOrder) {
+        const keyChar = cleanKey[cStart];
+        const rank = ranks[cStart];
+        for (let r = 0; r < rows; r++) {
+          const c = (cStart + r) % cols;
+          const cellKey = `${r},${c}`;
+          if (!visited.has(cellKey)) {
+            visited.add(cellKey);
+            const ch = grid[r][c];
+            cipherChars.push(ch);
+            pathSteps.push({
+              step: stepCounter,
+              row: r,
+              col: c,
+              char: ch,
+              keyChar,
+              rank,
+              pathDesc: `Diagonal [Key '${keyChar}' Rank #${rank}] ➔ (${r + 1}, ${c + 1})`,
+            });
+            stepCounter++;
+          }
+        }
+      }
+
+      // Safety check for residual cells
+      for (let r = 0; r < rows; r++) {
+        for (let c = 0; c < cols; c++) {
+          const cellKey = `${r},${c}`;
+          if (!visited.has(cellKey)) {
+            visited.add(cellKey);
+            const ch = grid[r][c];
+            cipherChars.push(ch);
+            pathSteps.push({
+              step: stepCounter,
+              row: r,
+              col: c,
+              char: ch,
+              keyChar: cleanKey[c],
+              rank: ranks[c],
+              pathDesc: `Diagonal Residual ➔ (${r + 1}, ${c + 1})`,
+            });
+            stepCounter++;
+          }
+        }
+      }
+    }
+
+    return {
+      rows,
+      cols,
+      grid,
+      steps: pathSteps,
+      ciphertext: cipherChars.join(''),
+    };
+  }, [cleanInput, cleanKey, colOrder, ranks, transMode]);
+
+  // Reset animation step when transposition parameters change
   useEffect(() => {
     setCurrentStep(0);
     setIsPlaying(false);
-  }, [transMode, matrixCols, railRows, cleanInput]);
+  }, [transMode, cleanKey, cleanInput]);
 
   // Animation player loop
   useEffect(() => {
@@ -234,7 +324,7 @@ export default function CipherSandboxTab() {
         width: '100%',
       }}
     >
-      {/* Top Sandbox Header & Mode Selector */}
+      {/* Top Header & Subsystem Mode Switcher */}
       <div
         style={{
           background: 'var(--bg-surface)',
@@ -250,14 +340,14 @@ export default function CipherSandboxTab() {
       >
         <div>
           <div style={{ color: 'var(--accent-cyan)', fontSize: '0.75rem', letterSpacing: '0.08em', marginBottom: '4px' }}>
-            [CRYPTOGRAPHIC SUBSYSTEM] // INTERACTIVE VISUALIZER
+            [CRYPTOGRAPHIC SUBSYSTEM] // REAL-TIME CIPHER LAB
           </div>
           <h2 style={{ margin: 0, fontSize: '1.35rem', color: 'var(--accent-green)' }}>
             CIPHER LAB / CRYPTO SANDBOX
           </h2>
         </div>
 
-        {/* Mode Switcher */}
+        {/* Primary Cipher Switcher */}
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           <button
             type="button"
@@ -285,12 +375,12 @@ export default function CipherSandboxTab() {
               fontSize: '0.85rem',
             }}
           >
-            [2. TRANSPOSITION CIPHER]
+            [2. KEYED TRANSPOSITION CIPHER]
           </button>
         </div>
       </div>
 
-      {/* Input Text Console */}
+      {/* Source Plaintext Console */}
       <div
         style={{
           background: 'var(--bg-surface)',
@@ -298,7 +388,7 @@ export default function CipherSandboxTab() {
           padding: '16px 20px',
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap', gap: '8px' }}>
           <label style={{ fontSize: '0.78rem', color: 'var(--accent-cyan)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
             &gt; SOURCE PLAINTEXT INPUT:
           </label>
@@ -343,11 +433,11 @@ export default function CipherSandboxTab() {
       </div>
 
       {/* ====================================================================
-          VIEW 1: SHIFT CIPHER VISUALIZATION
+          SECTION 1: SHIFT CIPHER WITH REAL-TIME FREQUENCY ANALYSIS DIAGRAM
           ==================================================================== */}
       {activeCipherType === 'shift' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {/* Shift Controls Panel */}
+          {/* Shift Parameter Controls */}
           <div
             style={{
               background: 'var(--bg-surface)',
@@ -408,7 +498,7 @@ export default function CipherSandboxTab() {
               </div>
             </div>
 
-            {/* Slider */}
+            {/* Shift Slider */}
             <div>
               <input
                 type="range"
@@ -424,14 +514,14 @@ export default function CipherSandboxTab() {
                 }}
               />
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                <span>MIN: 0 (No shift)</span>
+                <span>MIN: 0</span>
                 <span>FORMULA: C = (P + {shiftKey}) mod {alphabet.length}</span>
                 <span>MAX: {maxShift}</span>
               </div>
             </div>
           </div>
 
-          {/* Dual Parallel Alphabet Tracks (Plaintext Track vs Ciphertext Track) */}
+          {/* Dual Parallel Alphabet Tracks */}
           <div
             style={{
               background: 'var(--bg-surface)',
@@ -442,15 +532,15 @@ export default function CipherSandboxTab() {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '14px' }}>
               <span style={{ fontSize: '0.85rem', color: 'var(--accent-cyan)', fontWeight: 'bold' }}>
-                &gt; ALPHABET SHIFT TRACKS (PARALLEL MAPPING)
+                &gt; PARALLEL ALPHABET ALIGNMENT TRACKS
               </span>
               <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                Hover characters to inspect dynamic alignment
+                Hover characters to inspect dynamic Caesar mapping
               </span>
             </div>
 
-            {/* Track 1: Plaintext Original Track */}
-            <div style={{ marginBottom: '10px' }}>
+            {/* Track 1: Original Track */}
+            <div style={{ marginBottom: '8px' }}>
               <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginBottom: '4px' }}>
                 ORIGINAL PLAINTEXT TRACK (P):
               </div>
@@ -487,8 +577,8 @@ export default function CipherSandboxTab() {
               </div>
             </div>
 
-            {/* Connecting Directional Indicators */}
-            <div style={{ display: 'flex', gap: '3px', minWidth: '700px', margin: '4px 0' }}>
+            {/* Connecting Indicators */}
+            <div style={{ display: 'flex', gap: '3px', minWidth: '700px', margin: '2px 0' }}>
               {alphabet.split('').map((_, idx) => {
                 const isHovered = hoveredCharIndex === idx;
                 return (
@@ -509,7 +599,7 @@ export default function CipherSandboxTab() {
               })}
             </div>
 
-            {/* Track 2: Ciphertext Shifted Track */}
+            {/* Track 2: Ciphertext Track */}
             <div>
               <div style={{ fontSize: '0.72rem', color: 'var(--accent-red)', marginBottom: '4px' }}>
                 SHIFTED CIPHERTEXT TRACK (C = P + {shiftKey}):
@@ -548,76 +638,154 @@ export default function CipherSandboxTab() {
             </div>
           </div>
 
-          {/* Real-Time Result Cards */}
+          {/* Real-time Frequency Analysis Diagram (Section 1 Requirement) */}
           <div
             style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
-              gap: '16px',
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--border-color)',
+              padding: '20px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '14px',
             }}
           >
-            {/* Input Breakdown */}
-            <div
-              style={{
-                background: 'var(--bg-surface)',
-                border: '1px solid var(--border-color)',
-                padding: '16px',
-              }}
-            >
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '6px' }}>
-                ORIGINAL STREAM ({cleanInput.length} CHARS)
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+              <div>
+                <h3 style={{ fontSize: '0.95rem', color: 'var(--accent-cyan)', margin: 0 }}>
+                  &gt; REAL-TIME FREQUENCY ANALYSIS DIAGRAM (SHIFT KEY K={shiftKey})
+                </h3>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  Dynamic spectrum comparison: Encrypted ciphertext stream vs. standard {language.toUpperCase()} reference curve
+                </div>
               </div>
-              <div
-                style={{
-                  background: 'var(--bg-main)',
-                  padding: '12px',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.9rem',
-                  color: 'var(--text-main)',
-                  borderLeft: '3px solid var(--accent-cyan)',
-                  wordBreak: 'break-all',
-                }}
-              >
-                {cleanInput}
+
+              {/* Sort Switcher */}
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button
+                  type="button"
+                  onClick={() => setChartSortBy('alpha')}
+                  style={{
+                    background: chartSortBy === 'alpha' ? 'rgba(0, 240, 255, 0.15)' : 'transparent',
+                    border: `1px solid ${chartSortBy === 'alpha' ? 'var(--accent-cyan)' : 'var(--border-color)'}`,
+                    color: chartSortBy === 'alpha' ? 'var(--accent-cyan)' : 'var(--text-muted)',
+                    padding: '4px 8px',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '0.72rem',
+                    cursor: 'pointer',
+                  }}
+                >
+                  A-Z ORDER
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setChartSortBy('freq')}
+                  style={{
+                    background: chartSortBy === 'freq' ? 'rgba(0, 240, 255, 0.15)' : 'transparent',
+                    border: `1px solid ${chartSortBy === 'freq' ? 'var(--accent-cyan)' : 'var(--border-color)'}`,
+                    color: chartSortBy === 'freq' ? 'var(--accent-cyan)' : 'var(--text-muted)',
+                    padding: '4px 8px',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '0.72rem',
+                    cursor: 'pointer',
+                  }}
+                >
+                  BY FREQUENCY ▼
+                </button>
               </div>
             </div>
 
-            {/* Encrypted Result */}
+            {/* Recharts Bar Chart */}
+            <div style={{ width: '100%', height: '320px' }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={shiftHistogramData}
+                  margin={{ top: 12, right: 12, left: -20, bottom: 20 }}
+                >
+                  <CartesianGrid stroke="rgba(0, 240, 255, 0.08)" strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="letter"
+                    stroke="var(--text-muted)"
+                    tick={{ fill: 'var(--text-muted)', fontSize: 11, fontFamily: 'var(--font-mono)' }}
+                    interval={0}
+                  />
+                  <YAxis
+                    stroke="var(--text-muted)"
+                    tick={{ fill: 'var(--text-muted)', fontSize: 10, fontFamily: 'var(--font-mono)' }}
+                    unit="%"
+                  />
+                  <Tooltip content={<CyberpunkHistogramTooltip />} />
+                  <Legend
+                    wrapperStyle={{
+                      paddingTop: '8px',
+                      fontSize: '0.75rem',
+                      fontFamily: 'var(--font-mono)',
+                    }}
+                    formatter={(value) => {
+                      if (value === 'ciphertext') return `Encrypted Text (Shift +${shiftKey})`;
+                      if (value === 'reference') return `Reference Standard (${language.toUpperCase()})`;
+                      return value;
+                    }}
+                  />
+                  {/* Encrypted text frequency: Amber / Red (Section 1 requirement) */}
+                  <Bar
+                    dataKey="ciphertext"
+                    fill="var(--accent-amber)"
+                    stroke="var(--accent-red)"
+                    name="ciphertext"
+                    radius={[2, 2, 0, 0]}
+                    isAnimationActive={true}
+                    animationDuration={300}
+                  />
+                  {/* Reference language frequency: Semi-transparent Green (Section 1 requirement) */}
+                  <Bar
+                    dataKey="reference"
+                    fill="rgba(0, 255, 102, 0.4)"
+                    stroke="var(--accent-green)"
+                    name="reference"
+                    radius={[2, 2, 0, 0]}
+                    isAnimationActive={true}
+                    animationDuration={300}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Stream Output */}
+          <div
+            style={{
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--accent-green)',
+              boxShadow: '0 0 15px var(--accent-green-glow)',
+              padding: '16px 20px',
+            }}
+          >
+            <div style={{ fontSize: '0.75rem', color: 'var(--accent-green)', marginBottom: '6px', fontWeight: 'bold' }}>
+              &gt; LIVE SHIFT CIPHERTEXT STREAM (K={shiftKey}):
+            </div>
             <div
               style={{
-                background: 'var(--bg-surface)',
-                border: '1px solid var(--accent-green)',
-                boxShadow: '0 0 15px var(--accent-green-glow)',
-                padding: '16px',
+                background: 'var(--bg-main)',
+                padding: '12px',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '0.95rem',
+                color: 'var(--text-code)',
+                borderLeft: '3px solid var(--accent-green)',
+                wordBreak: 'break-all',
               }}
             >
-              <div style={{ fontSize: '0.75rem', color: 'var(--accent-green)', marginBottom: '6px' }}>
-                ENCRYPTED CIPHERTEXT (SHIFT +{shiftKey})
-              </div>
-              <div
-                style={{
-                  background: 'var(--bg-main)',
-                  padding: '12px',
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.9rem',
-                  color: 'var(--text-code)',
-                  borderLeft: '3px solid var(--accent-green)',
-                  wordBreak: 'break-all',
-                }}
-              >
-                {shiftEncryptedText}
-              </div>
+              {shiftEncryptedText}
             </div>
           </div>
         </div>
       )}
 
       {/* ====================================================================
-          VIEW 2: TRANSPOSITION CIPHER VISUALIZATION
+          SECTION 2: KEY-BASED TRANSPOSITION CIPHER (USER TEXT KEY)
           ==================================================================== */}
       {activeCipherType === 'transposition' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {/* Transposition Sub-mode & Matrix Dimension Controls */}
+          {/* User Text Key Input & Trajectory Mode Panel */}
           <div
             style={{
               background: 'var(--bg-surface)',
@@ -628,11 +796,67 @@ export default function CipherSandboxTab() {
               gap: '16px',
             }}
           >
-            {/* Sub-modes: Horizontal, Vertical, Diagonal */}
+            {/* User Key Input & Presets */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1, minWidth: '300px' }}>
+                <span style={{ color: 'var(--accent-cyan)', fontWeight: 'bold', fontSize: '0.85rem' }}>
+                  USER-DEFINED KEY:
+                </span>
+                <input
+                  type="text"
+                  value={userKey}
+                  onChange={(e) => setUserKey(e.target.value.toUpperCase())}
+                  placeholder="Enter keyword (e.g. CRYPTO)"
+                  maxLength={12}
+                  style={{
+                    background: 'var(--bg-main)',
+                    border: '1px solid var(--accent-cyan)',
+                    color: 'var(--accent-cyan)',
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '1rem',
+                    fontWeight: 'bold',
+                    padding: '6px 12px',
+                    outline: 'none',
+                    letterSpacing: '0.1em',
+                    boxShadow: '0 0 8px var(--accent-cyan-glow)',
+                    width: '160px',
+                  }}
+                />
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                  ({cleanKey.length} COLS)
+                </span>
+              </div>
+
+              {/* Quick Key Presets */}
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>KEY PRESETS:</span>
+                {PRESET_KEYS.map((k, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setUserKey(k)}
+                    style={{
+                      background: cleanKey === k ? 'var(--accent-cyan)' : 'rgba(10, 13, 20, 0.7)',
+                      color: cleanKey === k ? 'var(--bg-main)' : 'var(--accent-cyan)',
+                      border: `1px solid ${cleanKey === k ? 'var(--accent-cyan)' : 'var(--border-color)'}`,
+                      padding: '4px 8px',
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '0.72rem',
+                      cursor: 'pointer',
+                      fontWeight: 'bold',
+                    }}
+                  >
+                    {k}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Transposition Mode Buttons */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem', textTransform: 'uppercase' }}>
-                  PATH GEOMETRY:
+                  TRANSPOSITION MODE:
                 </span>
                 <button
                   type="button"
@@ -642,8 +866,8 @@ export default function CipherSandboxTab() {
                     background: transMode === 'vertical' ? 'var(--accent-green)' : 'transparent',
                     color: transMode === 'vertical' ? 'var(--bg-main)' : 'var(--accent-cyan)',
                     borderColor: transMode === 'vertical' ? 'var(--accent-green)' : 'var(--border-color)',
-                    padding: '6px 14px',
-                    fontSize: '0.8rem',
+                    padding: '6px 12px',
+                    fontSize: '0.78rem',
                   }}
                 >
                   [1. VERTICAL (COLUMNAR)]
@@ -656,11 +880,11 @@ export default function CipherSandboxTab() {
                     background: transMode === 'horizontal' ? 'var(--accent-green)' : 'transparent',
                     color: transMode === 'horizontal' ? 'var(--bg-main)' : 'var(--accent-cyan)',
                     borderColor: transMode === 'horizontal' ? 'var(--accent-green)' : 'var(--border-color)',
-                    padding: '6px 14px',
-                    fontSize: '0.8rem',
+                    padding: '6px 12px',
+                    fontSize: '0.78rem',
                   }}
                 >
-                  [2. HORIZONTAL (SNAKE)]
+                  [2. HORIZONTAL (ROW-PERMUTED)]
                 </button>
                 <button
                   type="button"
@@ -670,42 +894,21 @@ export default function CipherSandboxTab() {
                     background: transMode === 'diagonal' ? 'var(--accent-green)' : 'transparent',
                     color: transMode === 'diagonal' ? 'var(--bg-main)' : 'var(--accent-cyan)',
                     borderColor: transMode === 'diagonal' ? 'var(--accent-green)' : 'var(--border-color)',
-                    padding: '6px 14px',
-                    fontSize: '0.8rem',
+                    padding: '6px 12px',
+                    fontSize: '0.78rem',
                   }}
                 >
-                  [3. DIAGONAL (RAIL-FENCE)]
+                  [3. DIAGONAL (KEY-GUIDED)]
                 </button>
               </div>
 
-              {/* Matrix Dimensions Slider */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <span style={{ fontSize: '0.8rem', color: 'var(--accent-amber)' }}>
-                  {transMode === 'diagonal' ? `RAILS (DEPTH): ${railRows}` : `COLUMNS: ${matrixCols}`}
-                </span>
-                {transMode === 'diagonal' ? (
-                  <input
-                    type="range"
-                    min="2"
-                    max="6"
-                    value={railRows}
-                    onChange={(e) => setRailRows(Number(e.target.value))}
-                    style={{ width: '100px', accentColor: 'var(--accent-amber)', cursor: 'pointer' }}
-                  />
-                ) : (
-                  <input
-                    type="range"
-                    min="2"
-                    max="10"
-                    value={matrixCols}
-                    onChange={(e) => setMatrixCols(Number(e.target.value))}
-                    style={{ width: '100px', accentColor: 'var(--accent-cyan)', cursor: 'pointer' }}
-                  />
-                )}
+              {/* Matrix Dimensions Summary */}
+              <div style={{ fontSize: '0.8rem', color: 'var(--accent-amber)', fontFamily: 'var(--font-mono)' }}>
+                GRID: {transpositionData.rows} ROWS × {transpositionData.cols} COLS
               </div>
             </div>
 
-            {/* Animation Step Player Controls */}
+            {/* Animation Controls Bar */}
             <div
               style={{
                 display: 'flex',
@@ -767,9 +970,9 @@ export default function CipherSandboxTab() {
                 </button>
               </div>
 
-              {/* Step Counter Indicator */}
+              {/* Active Step Status */}
               <div style={{ fontSize: '0.82rem', fontFamily: 'var(--font-mono)' }}>
-                <span style={{ color: 'var(--text-muted)' }}>STEP: </span>
+                <span style={{ color: 'var(--text-muted)' }}>PROGRESS: </span>
                 <span style={{ color: 'var(--accent-cyan)', fontWeight: 'bold' }}>
                   {currentStep + 1} / {transpositionData.steps.length}
                 </span>
@@ -796,7 +999,7 @@ export default function CipherSandboxTab() {
             </div>
           </div>
 
-          {/* Matrix 2D Character Grid View */}
+          {/* Key-Based Visual Matrix Grid (Section 2 Requirement) */}
           <div
             style={{
               background: 'var(--bg-surface)',
@@ -805,10 +1008,16 @@ export default function CipherSandboxTab() {
               overflowX: 'auto',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <span style={{ fontSize: '0.85rem', color: 'var(--accent-cyan)', fontWeight: 'bold' }}>
-                &gt; DYNAMIC 2D MATRIX GRID VIEW ({transpositionData.rows} ROWS × {transpositionData.cols} COLS)
-              </span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
+              <div>
+                <span style={{ fontSize: '0.85rem', color: 'var(--accent-cyan)', fontWeight: 'bold' }}>
+                  &gt; KEY-PERMUTED 2D MATRIX (KEY: "{cleanKey}")
+                </span>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  Alphabetical Column Order: {colOrder.map((colIdx) => `${cleanKey[colIdx]}(#${ranks[colIdx]})`).join(' ➔ ')}
+                </div>
+              </div>
+
               <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', gap: '14px' }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                   <span style={{ width: '10px', height: '10px', background: 'var(--accent-cyan)', display: 'inline-block' }} />
@@ -821,7 +1030,7 @@ export default function CipherSandboxTab() {
               </div>
             </div>
 
-            {/* Matrix Table */}
+            {/* Matrix Table with Key Header */}
             <div
               style={{
                 display: 'inline-block',
@@ -839,25 +1048,54 @@ export default function CipherSandboxTab() {
                   margin: '0 auto',
                 }}
               >
+                {/* Key Letter & Rank Header */}
                 <thead>
+                  {/* Row 1: Key Letters */}
                   <tr>
-                    <th style={{ color: 'var(--text-muted)', fontSize: '0.7rem', padding: '4px' }}>R \ C</th>
-                    {Array.from({ length: transpositionData.cols }).map((_, cIdx) => (
+                    <th style={{ color: 'var(--text-muted)', fontSize: '0.68rem', padding: '4px' }}>KEY</th>
+                    {cleanKey.split('').map((kChar, cIdx) => (
                       <th
                         key={cIdx}
                         style={{
-                          color: activeStepObj?.col === cIdx ? 'var(--accent-cyan)' : 'var(--text-muted)',
-                          fontSize: '0.72rem',
+                          background: 'rgba(0, 240, 255, 0.1)',
+                          border: activeStepObj?.col === cIdx ? '1px solid var(--accent-cyan)' : '1px solid rgba(0, 240, 255, 0.3)',
+                          boxShadow: activeStepObj?.col === cIdx ? '0 0 10px var(--accent-cyan-glow)' : 'none',
+                          color: 'var(--accent-cyan)',
+                          fontSize: '1rem',
                           fontFamily: 'var(--font-mono)',
-                          padding: '4px 8px',
-                          borderBottom: activeStepObj?.col === cIdx ? '2px solid var(--accent-cyan)' : '1px solid var(--border-color)',
+                          fontWeight: 'bold',
+                          padding: '6px 10px',
+                          textAlign: 'center',
                         }}
                       >
-                        #{cIdx + 1}
+                        {kChar}
+                      </th>
+                    ))}
+                  </tr>
+                  {/* Row 2: Alphabetical Ranks */}
+                  <tr>
+                    <th style={{ color: 'var(--text-muted)', fontSize: '0.68rem', padding: '4px' }}>RANK</th>
+                    {ranks.map((rankVal, cIdx) => (
+                      <th
+                        key={cIdx}
+                        style={{
+                          background: 'rgba(255, 170, 0, 0.08)',
+                          border: '1px dashed rgba(255, 170, 0, 0.3)',
+                          color: 'var(--accent-amber)',
+                          fontSize: '0.75rem',
+                          fontFamily: 'var(--font-mono)',
+                          padding: '3px 8px',
+                          textAlign: 'center',
+                        }}
+                        title={`Column ${cIdx + 1} will be read in order #${rankVal}`}
+                      >
+                        #{rankVal}
                       </th>
                     ))}
                   </tr>
                 </thead>
+
+                {/* Matrix Rows */}
                 <tbody>
                   {transpositionData.grid.map((rowArr, rIdx) => (
                     <tr key={rIdx}>
@@ -871,40 +1109,32 @@ export default function CipherSandboxTab() {
                           textAlign: 'center',
                         }}
                       >
-                        #{rIdx + 1}
+                        R{rIdx + 1}
                       </td>
                       {rowArr.map((cellChar, cIdx) => {
-                        // Check if this cell is currently active
                         const isActive = activeStepObj?.row === rIdx && activeStepObj?.col === cIdx;
-
-                        // Check if this cell was already visited in previous steps
                         const stepIndexForCell = transpositionData.steps.findIndex(
                           (s) => s.row === rIdx && s.col === cIdx
                         );
                         const isVisited = stepIndexForCell !== -1 && stepIndexForCell <= currentStep;
-                        const isBlank = cellChar === '' || cellChar === undefined;
 
                         return (
                           <td
                             key={cIdx}
                             style={{
-                              width: '42px',
-                              height: '42px',
+                              width: '46px',
+                              height: '46px',
                               textAlign: 'center',
                               verticalAlign: 'middle',
                               fontFamily: 'var(--font-mono)',
                               fontSize: '1rem',
                               fontWeight: 'bold',
-                              color: isBlank
-                                ? 'transparent'
-                                : isActive
+                              color: isActive
                                 ? 'var(--bg-main)'
                                 : isVisited
                                 ? 'var(--accent-green)'
                                 : 'var(--text-main)',
-                              background: isBlank
-                                ? 'rgba(255, 255, 255, 0.02)'
-                                : isActive
+                              background: isActive
                                 ? 'var(--accent-cyan)'
                                 : isVisited
                                 ? 'rgba(0, 255, 102, 0.12)'
@@ -934,7 +1164,7 @@ export default function CipherSandboxTab() {
             </div>
           </div>
 
-          {/* Extraction Stream Progress */}
+          {/* Real-Time Extraction Stream Buffer */}
           <div
             style={{
               background: 'var(--bg-surface)',
@@ -947,7 +1177,7 @@ export default function CipherSandboxTab() {
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '0.8rem', color: 'var(--accent-green)', fontWeight: 'bold' }}>
-                &gt; REAL-TIME EXTRACTION STREAM (CIPHERTEXT ACCUMULATION):
+                &gt; REAL-TIME CIPHERTEXT ACCUMULATION BUFFER:
               </span>
               <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
                 {animatedCiphertextOutput.length} of {transpositionData.ciphertext.length} characters emitted
@@ -975,15 +1205,15 @@ export default function CipherSandboxTab() {
             </div>
 
             <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
-              <strong>Trajectory Logic: </strong>
+              <strong>Trajectory Rule: </strong>
               {transMode === 'vertical' && (
-                <span>Characters were loaded row-by-row into {matrixCols} columns, then read out column-by-column (top to bottom).</span>
+                <span>Columns are read top-to-bottom strictly in the alphabetical order of key '{cleanKey}': {colOrder.map((c) => `${cleanKey[c]} (#${ranks[c]})`).join(' ➔ ')}.</span>
               )}
               {transMode === 'horizontal' && (
-                <span>Characters were loaded into {matrixCols} columns, then extracted via alternating serpentine snake trajectory.</span>
+                <span>Rows are read row-by-row with character positions rearranged according to key ranks: {colOrder.map((c) => `${cleanKey[c]} (#${ranks[c]})`).join(' ➔ ')}.</span>
               )}
               {transMode === 'diagonal' && (
-                <span>Characters were placed along a {railRows}-rail diagonal zigzag trajectory, then read horizontally across each rail.</span>
+                <span>Diagonals are scanned across the matrix initiated from columns ordered by key ranks: {colOrder.map((c) => `${cleanKey[c]} (#${ranks[c]})`).join(' ➔ ')}.</span>
               )}
             </div>
           </div>

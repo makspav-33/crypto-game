@@ -22,8 +22,8 @@ def sandbox_transpose():
     data = request.get_json(silent=True) or {}
     text = data.get('text', '')
     mode = data.get('mode', 'vertical')
-    cols = int(data.get('cols', 5))
-    result = transpose_cipher(text, mode, cols)
+    key = data.get('key', 'KEY')
+    result = transpose_cipher(text, mode, key)
     return jsonify(result)
 
 
